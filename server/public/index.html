@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#09090b">
+<title>CueLine</title>
+<style>
+  :root {
+    --ink: #09090b; --raise: #131316; --line: rgba(255,255,255,.10);
+    --text: #fafafa; --dim: rgba(250,250,250,.44); --dimmer: rgba(250,250,250,.26);
+    --live: #46d17f; --warn: #e0a33e;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { height: 100%; }
+  body {
+    height: 100dvh; display: flex; flex-direction: column;
+    background: var(--ink); color: var(--text);
+    font: 400 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    letter-spacing: -.005em; -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; }
+  .micro { font-size: 10px; text-transform: uppercase; letter-spacing: .14em; color: var(--dimmer); font-weight: 500; }
+
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 18px; border-bottom: 1px solid var(--line);
+  }
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  #code {
+    font-size: 17px; font-weight: 600; letter-spacing: .3em; text-indent: .3em;
+    padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--raise);
+  }
+  .pill {
+    display: flex; align-items: center; gap: 7px; padding: 4px 10px;
+    border: 1px solid var(--line); border-radius: 999px; font-size: 11px; color: var(--dim);
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dimmer); flex: 0 0 auto; }
+  .dot.on { background: var(--live); }
+  .spacer { flex: 1; }
+
+  button {
+    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+    color: var(--text); background: transparent; border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 12px; transition: border-color .12s, opacity .12s;
+  }
+  button:hover { border-color: rgba(255,255,255,.3); }
+  button.primary { background: var(--text); color: var(--ink); border-color: var(--text); }
+  button.primary:hover { opacity: .86; }
+  button:disabled { opacity: .4; cursor: default; }
+  input {
+    font: inherit; color: var(--text); background: var(--raise);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px;
+  }
+  input::placeholder { color: var(--dimmer); }
+  input:focus { outline: none; border-color: rgba(255,255,255,.34); }
+  input:focus-visible, button:focus-visible { outline: 1px solid var(--text); outline-offset: 2px; }
+
+  main { display: flex; flex: 1; min-height: 0; }
+  #mixer { width: 272px; flex: 0 0 auto; border-right: 1px solid var(--line); padding: 18px; }
+  @media (max-width: 720px) {
+    main { flex-direction: column; }
+    #mixer { width: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 14px 18px; }
+  }
+  .track + .track { margin-top: 20px; }
+  .track > .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .track .state { font-size: 11px; color: var(--dimmer); }
+  .meter { height: 3px; background: var(--raise); border-radius: 2px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; width: 0; background: var(--live); transition: width .06s linear; }
+  input[type=range] { width: 100%; margin-top: 12px; accent-color: var(--text); background: transparent; }
+  .hint { font-size: 11px; color: var(--dimmer); margin-top: 20px; line-height: 1.6; }
+
+  #right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #log { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 8px; }
+  .cue {
+    align-self: flex-end; max-width: 78%; background: var(--text); color: var(--ink);
+    padding: 8px 13px; border-radius: 12px 12px 3px 12px; overflow-wrap: anywhere; font-weight: 450;
+  }
+  .sys { align-self: center; font-size: 11px; color: var(--dimmer); }
+  form { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
+  form input { flex: 1; }
+</style>
+
+<header>
+  <h1>CueLine</h1>
+  <span id="code" class="mono">------</span>
+  <button id="newcode">New</button>
+  <span class="pill"><span class="dot" id="dot"></span><span id="presence">agent offline</span></span>
+  <span class="spacer"></span>
+  <span class="micro mono" id="rtt"></span>
+  <button id="speakers" class="primary">Enable speakers</button>
+</header>
+
+<main>
+  <section id="mixer">
+    <div class="track">
+      <div class="head"><span class="micro">Microphone</span><span class="state" id="mic-state">no signal</span></div>
+      <div class="meter"><i id="mic-meter"></i></div>
+      <input type="range" id="mic-gain" min="0" max="2" step="0.01" value="1" aria-label="Microphone volume">
+    </div>
+    <div class="track">
+      <div class="head"><span class="micro">System audio</span><span class="state" id="sys-state">no signal</span></div>
+      <div class="meter"><i id="sys-meter"></i></div>
+      <input type="range" id="sys-gain" min="0" max="2" step="0.01" value="1" aria-label="System audio volume">
+    </div>
+    <p class="hint">Audio runs one way. The agent never hears you and never plays a sound.</p>
+  </section>
+
+  <section id="right">
+    <div id="log"></div>
+    <form id="whisper" autocomplete="off">
+      <input id="cue" placeholder="Type a cue, press Enter" maxlength="200" autofocus>
+      <button class="primary">Send</button>
+    </form>
+  </section>
+</main>
+
+<script type="module" src="./host.js"></script>

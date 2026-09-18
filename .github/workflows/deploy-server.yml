@@ -1,0 +1,50 @@
+name: Deploy server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'deploy/**'
+      - '.github/workflows/deploy-server.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Cheapest possible guard against pushing a file that will not parse.
+      - name: Check syntax
+        run: |
+          node --check server/index.js
+          node --check server/public/host.js
+          bash -n deploy/deploy.sh
+
+      - name: Load the deploy key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Pull and restart
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" bash -euo pipefail <<'REMOTE'
+            cd /opt/cueline
+            git fetch --all
+            git reset --hard origin/main
+            cd server
+            npm ci --omit=dev || npm install --omit=dev
+            chown -R cueline:cueline /opt/cueline
+            systemctl restart cueline
+            sleep 2
+            systemctl is-active --quiet cueline
+            curl -fsS http://127.0.0.1:8080/config.json > /dev/null
+            echo "cueline restarted and answering"
+          REMOTE

@@ -1,0 +1,48 @@
+name: Build Windows agent
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'client/**'
+      - '.github/workflows/build-agent.yml'
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    # Build on Windows. Cross-building the NSIS target from Linux needs wine,
+    # and that is not worth the trouble for one artifact.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install
+        working-directory: client
+        run: npm ci
+
+      - name: Build installer
+        working-directory: client
+        run: npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cueline-windows
+          path: |
+            client/dist/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      # A tag publishes a release so the agent can be downloaded without a
+      # GitHub login. The build is unsigned, so SmartScreen warns on first run.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: client/dist/*.exe
+          generate_release_notes: true

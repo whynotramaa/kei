@@ -1,0 +1,355 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>CueLine</title>
+<style>
+  :root {
+    --ink: #09090b; --raise: #131316; --line: rgba(255,255,255,.10);
+    --text: #fafafa; --dim: rgba(250,250,250,.44); --dimmer: rgba(250,250,250,.26);
+    --live: #46d17f; --warn: #e0a33e;
+    font-size: 16px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: transparent; overflow: hidden;
+    color: var(--text); -webkit-user-select: none; cursor: default;
+    font: 400 .875rem/1.5 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    letter-spacing: -.005em;
+    display: flex; flex-direction: column; justify-content: flex-end;
+  }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; }
+  .micro {
+    font-size: .625rem; text-transform: uppercase; letter-spacing: .14em;
+    color: var(--dimmer); font-weight: 500;
+  }
+
+  /* ---------------------------------------------------------------- setup */
+  #setup {
+    flex: 1; margin: .75rem; padding: 1.5rem 1.625rem 1.25rem;
+    background: var(--ink); border: 1px solid var(--line); border-radius: .875rem;
+    display: flex; flex-direction: column; gap: 1rem;
+    box-shadow: 0 1.5rem 4rem rgba(0,0,0,.7);
+  }
+  body.cue #setup { display: none; }
+
+  #top { display: flex; align-items: center; gap: .625rem; -webkit-app-region: drag; }
+  #top h1 { font-size: .9375rem; font-weight: 600; letter-spacing: -.01em; }
+  .pill {
+    margin-left: auto; display: flex; align-items: center; gap: .4375rem;
+    padding: .25rem .5625rem; border: 1px solid var(--line); border-radius: 999px;
+    font-size: .6875rem; color: var(--dim); -webkit-app-region: no-drag;
+  }
+  .dot { width: .375rem; height: .375rem; border-radius: 50%; background: var(--dimmer); }
+  .dot.on { background: var(--live); }
+  .dot.bad { background: var(--warn); }
+
+  .field { display: flex; flex-direction: column; gap: .375rem; }
+  input {
+    width: 100%; font: inherit; color: var(--text); background: var(--raise);
+    border: 1px solid var(--line); border-radius: .5rem; padding: .5625rem .6875rem;
+    transition: border-color .12s;
+  }
+  input::placeholder { color: var(--dimmer); }
+  input:focus { outline: none; border-color: rgba(255,255,255,.34); }
+  #room {
+    text-align: center; font-size: 1.375rem; font-weight: 600;
+    letter-spacing: .34em; text-indent: .34em; padding: .625rem;
+  }
+  button {
+    font: inherit; font-weight: 550; cursor: pointer;
+    padding: .625rem; border-radius: .5rem;
+    background: var(--text); color: #09090b; border: 1px solid var(--text);
+    transition: opacity .12s;
+  }
+  button:hover { opacity: .86; }
+  button.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+  input:focus-visible, button:focus-visible { outline: 1px solid var(--text); outline-offset: 2px; }
+
+  #rows { display: flex; flex-direction: column; gap: .125rem; }
+  .row { display: flex; align-items: center; gap: .5rem; padding: .1875rem 0; font-size: .8125rem; }
+  .row .what { color: var(--dim); }
+  .row .val { margin-left: auto; color: var(--dimmer); font-size: .75rem; }
+
+  #keys {
+    margin-top: auto; padding-top: .875rem; border-top: 1px solid var(--line);
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: .1875rem .875rem;
+  }
+  #keys div { display: flex; gap: .5rem; font-size: .6875rem; color: var(--dimmer); }
+  kbd {
+    font: 500 .625rem/1.4 ui-monospace, Menlo, monospace; color: var(--dim);
+    border: 1px solid var(--line); border-radius: .25rem; padding: .0625rem .3125rem;
+    white-space: nowrap;
+  }
+  #keys span { color: var(--dimmer); }
+
+  /* ------------------------------------------------------------------ cue */
+  #cues {
+    display: none; flex-direction: column; align-items: center; gap: .375rem;
+    padding: .75rem; transition: opacity .4s ease;
+  }
+  body.cue #cues { display: flex; }
+  #cues.faded { opacity: 0; }
+  .cue {
+    max-width: 100%; padding: .5rem 1rem; border-radius: .625rem;
+    background: rgba(9,9,11,.92); border: 1px solid var(--line);
+    overflow-wrap: anywhere; text-align: center;
+    animation: rise .16s ease-out;
+  }
+  .cue.now { font-size: 1.5rem; font-weight: 550; line-height: 1.3; padding: .75rem 1.25rem; }
+  .cue.old { font-size: .8125rem; color: var(--dim); }
+  #toast {
+    position: fixed; top: .75rem; right: .75rem; padding: .25rem .5625rem;
+    background: rgba(9,9,11,.92); border: 1px solid var(--line); border-radius: .375rem;
+    font-size: .6875rem; color: var(--dim); opacity: 0; transition: opacity .18s;
+  }
+  #toast.show { opacity: 1; }
+  @keyframes rise { from { transform: translateY(.375rem); opacity: 0 } to { transform: none; opacity: 1 } }
+  @media (prefers-reduced-motion: reduce) { .cue { animation: none } #cues, #toast { transition: none } }
+</style>
+
+<section id="setup">
+  <div id="top">
+    <h1>CueLine</h1>
+    <span class="pill"><span class="dot" id="d-net"></span><span id="v-net">idle</span></span>
+  </div>
+
+  <div class="field">
+    <label class="micro" for="server">Server</label>
+    <input id="server" placeholder="https://cueline.example.com" spellcheck="false">
+  </div>
+
+  <div class="field">
+    <label class="micro" for="room">Room code</label>
+    <input id="room" class="mono" placeholder="ABC234" maxlength="6" spellcheck="false" autocapitalize="characters">
+  </div>
+
+  <button id="go">Connect</button>
+
+  <div id="rows">
+    <div class="row"><span class="dot" id="d-mic"></span><span class="what">Microphone</span><span class="val" id="v-mic">idle</span></div>
+    <div class="row"><span class="dot" id="d-sys"></span><span class="what">System audio</span><span class="val" id="v-sys">idle</span></div>
+  </div>
+
+  <div id="keys">
+    <div><kbd>Ctrl Alt S</kbd><span>setup</span></div>
+    <div><kbd>Ctrl Alt H</kbd><span>hide</span></div>
+    <div><kbd>Ctrl Alt [ ]</kbd><span>opacity</span></div>
+    <div><kbd>Ctrl Alt PgUp/PgDn</kbd><span>size</span></div>
+    <div><kbd>Ctrl Alt ←↑↓→</kbd><span>move</span></div>
+    <div><kbd>Ctrl Alt 0</kbd><span>reset</span></div>
+  </div>
+</section>
+
+<div id="cues"></div>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id)
+const set = (k, state, text) => { $('d-' + k).className = 'dot ' + state; $('v-' + k).textContent = text }
+
+let ws, pc, dc, mic, sys
+let iceServers = null, connected = false, peerOnline = false, backoff = 1000, pending = []
+
+$('server').value = localStorage.server || ''
+$('room').value = localStorage.room || ''
+$('go').onclick = () => connected ? stop() : start()
+$('room').onkeydown = e => e.key === 'Enter' && $('go').click()
+
+// ---------------------------------------------------------------- chrome glue
+cueline.onMode(mode => {
+  document.body.classList.toggle('cue', mode === 'cue')
+  if (mode === 'setup') setTimeout(() => ($('server').value ? $('room') : $('server')).focus(), 30)
+})
+cueline.onScale(size => { document.documentElement.style.fontSize = (16 * size) + 'px' })
+
+let toastTimer
+cueline.onToast(text => {
+  $('toast').textContent = text
+  $('toast').classList.add('show')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => $('toast').classList.remove('show'), 1100)
+})
+
+// -------------------------------------------------------------------- capture
+async function start () {
+  const server = $('server').value.trim().replace(/\/$/, '')
+  const room = $('room').value.trim().toUpperCase()
+  if (!/^https?:\/\//.test(server) || room.length !== 6) {
+    return set('net', 'bad', 'need a server and a 6 char code')
+  }
+  localStorage.server = server
+  localStorage.room = room
+
+  connected = true
+  $('go').textContent = 'Disconnect'
+  $('go').classList.add('ghost')
+
+  // Signalling opens first and is deliberately not awaited. Awaiting it would
+  // burn the click's transient activation, which getDisplayMedia still needs,
+  // and having the socket up is the only way a capture failure reaches the host.
+  connect(server, room)
+
+  try {
+    // All processing off. The WebRTC audio pipeline adds roughly 10 to 20 ms of
+    // algorithmic delay, and a headset is already required, so none of it earns
+    // its latency. The host has a fader for level.
+    mic = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    })
+    set('mic', 'on', 'live')
+  } catch (e) { return fail('microphone', e) }
+
+  try {
+    // Not screen sharing. getDisplayMedia is the only API that exposes system
+    // loopback, and the spec rejects audio-only calls, so we take a video track
+    // and stop it immediately. Nothing video ever reaches the peer connection.
+    const disp = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    })
+    disp.getVideoTracks().forEach(t => t.stop())
+
+    const [loopback] = disp.getAudioTracks()
+    // A dead-on-arrival track is the known failure when Electron hands back a
+    // handle without wiring up the native capture. Catch it here rather than
+    // shipping a silent stream the host cannot tell apart from a quiet room.
+    if (!loopback || loopback.readyState === 'ended') throw new Error('loopback track dead on arrival')
+    loopback.onended = () => set('sys', 'bad', 'capture ended')
+    sys = disp
+    set('sys', 'on', 'live')
+  } catch (e) { return fail('system audio', e) }
+
+  try { ({ iceServers } = await fetch(server + '/config.json').then(r => r.json())) }
+  catch (e) { return fail('the server', e) }
+
+  maybeNegotiate()
+}
+
+// Fail closed. No stream, and the host is told which permission is missing
+// rather than being left to stare at a silent meter.
+function fail (what, err) {
+  console.error(what, err)
+  if (what !== 'the server') set(what === 'microphone' ? 'mic' : 'sys', 'bad', 'blocked')
+  set('net', 'bad', `cannot reach ${what}`)
+  if (ws?.readyState === 1) ws.send(JSON.stringify({ t: 'perm', ok: false, what }))
+  setTimeout(() => stop(true), 500) // let the message leave before the socket closes
+}
+
+function stop (keepMessage) {
+  connected = false
+  peerOnline = false
+  if (ws) { ws.onclose = null; ws.close() }
+  pc?.close()
+  pc = dc = ws = null
+  for (const s of [mic, sys]) s?.getTracks().forEach(t => t.stop())
+  mic = sys = null
+  set('mic', '', 'idle'); set('sys', '', 'idle')
+  if (!keepMessage) set('net', '', 'idle')
+  $('go').textContent = 'Connect'
+  $('go').classList.remove('ghost')
+  cueline.setStatus(false)
+}
+
+// ----------------------------------------------------------------- signalling
+function connect (server, room) {
+  ws = new WebSocket(server.replace(/^http/, 'ws') + '/ws')
+  ws.onopen = () => { backoff = 1000; ws.send(JSON.stringify({ t: 'join', room, role: 'agent' })) }
+  ws.onclose = () => {
+    if (!connected) return
+    set('net', 'bad', 'reconnecting')
+    setTimeout(() => connect(server, room), backoff = Math.min(backoff * 2, 15000))
+  }
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data)
+    if (msg.t === 'joined') { peerOnline = msg.peer; maybeNegotiate() }
+    if (msg.t === 'peer') {
+      peerOnline = msg.state === 'online'
+      if (peerOnline) maybeNegotiate()
+      else { set('net', '', 'host offline'); cueline.setStatus(false) }
+    }
+    if (msg.t === 'signal') onSignal(msg.data)
+  }
+}
+
+const signal = data => ws?.readyState === 1 && ws.send(JSON.stringify({ t: 'signal', data }))
+
+// Capture and the host arriving race each other. Whichever finishes last starts
+// the call, so this is the only place negotiation begins.
+const maybeNegotiate = () => (peerOnline && mic && sys && iceServers) && negotiate()
+
+// The agent owns the media so the agent always offers. A fresh peer connection
+// per offer means there is no renegotiation path left to get wrong.
+async function negotiate () {
+  if (pc) pc.close()
+  pending = []
+  pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: 'all' })
+  pc.onicecandidate = e => e.candidate && signal({ ice: e.candidate })
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState
+    set('net', s === 'connected' ? 'on' : 'bad', s)
+    cueline.setStatus(s === 'connected')
+    if (s === 'connected') cueline.setMode('cue')
+    if (s === 'failed') restartIce()
+  }
+
+  // ponytail: mid 0 is mic, mid 1 is system, decided purely by this call order.
+  // Upgrade to an explicit manifest over the data channel if a third track appears.
+  pc.addTransceiver(mic.getAudioTracks()[0], { direction: 'sendonly' })
+  pc.addTransceiver(sys.getAudioTracks()[0], { direction: 'sendonly' })
+
+  dc = pc.createDataChannel('cues', { ordered: true })
+  dc.onmessage = e => showCue(e.data)
+
+  await offer()
+}
+
+async function offer (opts) {
+  const sdp = await pc.createOffer(opts)
+  sdp.sdp = tuneOpus(sdp.sdp)
+  await pc.setLocalDescription(sdp)
+  signal({ sdp: pc.localDescription })
+}
+
+const restartIce = () => pc && offer({ iceRestart: true })
+
+async function onSignal (data) {
+  if (!pc) return
+  if (data.sdp) {
+    await pc.setRemoteDescription(data.sdp)
+    for (const c of pending.splice(0)) await pc.addIceCandidate(c).catch(() => {})
+    const [micSender, sysSender] = pc.getSenders()
+    bitrate(micSender, 64000)
+    bitrate(sysSender, 96000)
+  } else if (data.ice) {
+    if (pc.remoteDescription) await pc.addIceCandidate(data.ice).catch(() => {})
+    else pending.push(data.ice)
+  }
+}
+
+async function bitrate (sender, bps) {
+  const p = sender.getParameters()
+  p.encodings = p.encodings?.length ? p.encodings : [{}]
+  p.encodings[0].maxBitrate = bps
+  await sender.setParameters(p).catch(() => {})
+}
+
+// 10 ms Opus frames instead of the 20 ms default, and no discontinuous
+// transmission, which otherwise inserts comfort noise gaps.
+const tuneOpus = sdp => sdp.replace(
+  /a=fmtp:(\d+) ([^\r\n]*useinbandfec=1[^\r\n]*)/g,
+  (_, pt, params) => `a=fmtp:${pt} ${params.includes('minptime') ? params : 'minptime=10;usedtx=0;' + params}`
+)
+
+// ------------------------------------------------------------------ cue view
+const DWELL = 12000
+let fadeTimer
+
+function showCue (text) {
+  clearTimeout(fadeTimer)
+  $('cues').classList.remove('faded')
+  for (const el of $('cues').children) el.className = 'cue old'
+  $('cues').append(Object.assign(document.createElement('div'), { className: 'cue now', textContent: text }))
+  while ($('cues').children.length > 3) $('cues').firstChild.remove()
+  fadeTimer = setTimeout(() => $('cues').classList.add('faded'), DWELL)
+}
+</script>

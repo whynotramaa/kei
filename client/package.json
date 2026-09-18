@@ -1,0 +1,33 @@
+{
+  "name": "cueline-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CueLine desktop agent: one way audio out, cues in",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^44.4.2",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.cueline.agent",
+    "productName": "CueLine",
+    "files": ["main.js", "preload.js", "overlay.html", "assets/**"],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "CueLine"
+    }
+  }
+}
