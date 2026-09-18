@@ -19,7 +19,7 @@ app.on('second-instance', () => setMode('setup'))
 
 // One window. It is the overlay in both states, so nothing ever opens a second
 // window: setup is the same surface made focusable and a little taller.
-const DIMS = { setup: [760, 470], cue: [760, 210] }
+const DIMS = { setup: [760, 560], cue: [760, 210] }
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 function createWindow () {
