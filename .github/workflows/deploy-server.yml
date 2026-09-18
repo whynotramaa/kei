@@ -25,6 +25,7 @@ jobs:
           node --check server/index.js
           node --check server/public/host.js
           bash -n deploy/deploy.sh
+          bash -n deploy/update.sh
 
       - name: Load the deploy key
         run: |
@@ -35,16 +36,5 @@ jobs:
 
       - name: Pull and restart
         run: |
-          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" bash -euo pipefail <<'REMOTE'
-            cd /opt/cueline
-            git fetch --all
-            git reset --hard origin/main
-            cd server
-            npm ci --omit=dev || npm install --omit=dev
-            chown -R cueline:cueline /opt/cueline
-            systemctl restart cueline
-            sleep 2
-            systemctl is-active --quiet cueline
-            curl -fsS http://127.0.0.1:8080/config.json > /dev/null
-            echo "cueline restarted and answering"
-          REMOTE
+          ssh -i ~/.ssh/id_ed25519 "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            'bash -s' < deploy/update.sh

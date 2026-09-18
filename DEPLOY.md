@@ -191,10 +191,11 @@ three secrets.
 `/opt/cueline` to `origin/main`, installs dependencies, restarts the service, and
 fails the build if the service does not answer afterwards.
 
-`.github/workflows/build-agent.yml` runs on any push that touches `client/`. It
-builds the Windows installer on a Windows runner and uploads it as an artifact.
-Pushing a tag that starts with `v` publishes a release with the installer
-attached.
+`.github/workflows/build-agent.yml` runs on a tag that starts with `v`, or from
+the **Run workflow** button. It builds the Windows installer on a Windows runner,
+uploads it as an artifact, and attaches it to a release on a tag. It does not run
+on every push, because you want an installer when you decide to cut one, not on
+every tweak.
 
 ```sh
 git tag v1.0.0 && git push --tags
@@ -222,8 +223,8 @@ Work down this list. Each line proves the one above it was fine.
 
 Push to `main`. The workflow does the rest.
 
-To deploy by hand, or to check what the workflow would do:
+The workflow runs `deploy/update.sh` on the server. To do the same by hand:
 
 ```sh
-ssh root@your-box 'cd /opt/cueline && git pull && cd server && npm ci --omit=dev && systemctl restart cueline'
+ssh root@your-box 'bash -s' < deploy/update.sh
 ```

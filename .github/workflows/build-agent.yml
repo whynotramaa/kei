@@ -1,11 +1,9 @@
 name: Build Windows agent
 
+# Tags only, plus the Run workflow button. A path filter here would also apply
+# to tag pushes, and a tag adds no files, so the release would never build.
 on:
   push:
-    branches: [main]
-    paths:
-      - 'client/**'
-      - '.github/workflows/build-agent.yml'
     tags: ['v*']
   workflow_dispatch:
 
