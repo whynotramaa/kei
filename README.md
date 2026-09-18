@@ -12,7 +12,7 @@ on a phone.
 
 ## What you need
 
-- A Linux box running nginx, and a domain that points at it.
+- A server running nginx with a port and subdomain allocated to you.
 - Node 22 or later.
 - A TURN provider if the agent sits behind corporate NAT. STUN alone handles
   home and cafe networks.
@@ -39,20 +39,16 @@ Open `http://localhost:8080` and the page shows a six character room code.
 Test with two devices. On one device the host speakers feed back into the
 agent's microphone and loopback capture, and the echo never settles.
 
-The full runbook, both a LAN test with no domain and a VPS behind nginx, is in
-[DEPLOY.md](DEPLOY.md). On a box that already runs nginx:
+The full runbook is in [DEPLOY.md](DEPLOY.md). It covers a LAN test that needs
+no domain, and deployment to the shared Orbya VPS.
 
-```sh
-git clone git@github.com:whynotramaa/kei.git /opt/cueline
-cd /opt/cueline
-sudo ./deploy/deploy.sh cueline.yourdomain.com --certbot
-```
+On that VPS the split is strict. CI builds an image, pushes it to GHCR, and asks
+the box to pull and restart. Nothing in this repo is copied onto the server, and
+no workflow edits nginx, TLS, or the compose file. Those are host-owned. The
+files under `deploy/` are reference copies the operator installs by hand once.
 
-The script installs Node if needed, creates a `cueline` system user, starts a
-systemd service bound to `127.0.0.1:8080`, and adds one nginx site that proxies
-to it. It leaves existing sites alone and refuses to run if the port is taken.
-
-After that, pushes to `main` deploy themselves through GitHub Actions.
+After the first bring-up, pushes to `main` deploy themselves, gated behind a
+required reviewer on the `production` environment.
 
 ## Run the agent
 
@@ -169,7 +165,8 @@ agent then shows a picker on connect, which is worse to use but works.
 | `server/public/host.js` | Host peer connection, Web Audio playback, meters, cue channel |
 | `client/main.js` | The one window, tray, global shortcuts, loopback handler |
 | `client/overlay.html` | Setup form, capture, peer connection, cue display |
-| `deploy/deploy.sh` | First deployment, safe to re-run |
-| `deploy/cueline.service` | systemd unit, runs as its own user |
-| `deploy/cueline.nginx.conf` | nginx site with the websocket upgrade headers |
-| `.github/workflows/` | Deploy on push, build the Windows installer |
+| `Dockerfile` | The signalling image, built in CI and never on the VPS |
+| `deploy/first-deploy.sh` | One-time bring-up, run by the operator on the box |
+| `deploy/docker-compose.prod.yml` | Reference copy. The live file is host-owned |
+| `deploy/cueline.nginx.conf` | Reference copy. Carries the websocket upgrade headers |
+| `.github/workflows/` | Build and deploy, build the Windows installer |

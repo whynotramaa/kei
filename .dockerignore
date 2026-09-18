@@ -1,0 +1,8 @@
+client
+deploy
+.github
+node_modules
+**/node_modules
+dist
+*.md
+.git

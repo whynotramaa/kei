@@ -1,0 +1,24 @@
+# REFERENCE COPY. NOT DEPLOYED FROM THIS REPO.
+#
+# The live file is host-owned at /opt/cueline/docker/docker-compose.prod.yml.
+# Editing this copy changes nothing in production. Copy it to the box by hand
+# once, then maintain it there.
+
+services:
+  signal:
+    image: ghcr.io/whynotramaa/cueline-signal:${IMAGE_TAG}
+    restart: unless-stopped
+
+    # Shared host. An uncapped container can OOM the box. This process holds a
+    # room map and relays JSON, so it needs very little.
+    mem_limit: 256m
+
+    # Loopback only. nginx is the sole public path in.
+    ports:
+      - "127.0.0.1:3400:8080"
+
+    env_file: ../.env.prod
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

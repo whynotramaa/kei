@@ -61,170 +61,241 @@ music there. Type in the cue box on device B and the cue appears on device A.
 STUN is not involved on a LAN, so this path tells you nothing about whether the
 call survives a real network. Path B does.
 
-## Path B: Hostinger VPS behind nginx and Cloudflare
+## Path B: the Orbya VPS
 
-Your box already runs nginx 1.24 on ports 80 and 443, with Cloudflare in front
-and `algoeve.conf` and `resqnet.conf` enabled. CueLine adds one more nginx site
-and one systemd service. It does not touch the existing ones.
+This box is shared. `SERVER-SETUP.txt` and `DEVELOPER-DEPLOYMENT-GUIDE.md` are
+the authority, and CueLine follows Style A from that guide.
 
-Port 8080 is free on that box. Ports 3100 to 3104, 3200, 3300, 9100, 9101, and
-5435 are taken, so do not reuse those.
+The split is strict. CI builds an image, pushes it to GHCR, then asks the box to
+pull and restart. Nothing in this repo is copied onto the server, and no
+workflow edits nginx, TLS, UFW, or the compose file. Those are host-owned and
+maintained by hand.
 
-The signalling service runs under its own `cueline` user, binds to `127.0.0.1`
-only, and is reachable from outside through nginx alone.
+```
+GitHub push ──► Actions ──► build image ──► GHCR
+                                              │
+Cloudflare ──► host nginx (TLS) ──► 127.0.0.1:3400 ──► cueline-signal container
+```
 
-### 1. Point a subdomain at the box
+### What CueLine needs allocated
 
-In the Cloudflare dashboard, add an A record for `cueline.yourdomain.com` that
-points at the VPS IP.
+Ask the host operator for these and have them recorded in `SERVER-SETUP.txt`
+section 7.
 
-Leave the proxy off, the grey cloud, until step 4 finishes. The certificate
-request in step 3 is simpler when Let's Encrypt reaches the origin directly.
+| Item | Value |
+| --- | --- |
+| Port | `3400` from the free 3400 to 3499 block |
+| Image | `ghcr.io/whynotramaa/cueline-signal` |
+| Subdomain | `cueline.orbyatravel.com` |
+
+Do not use the 3300 block even though the registry lists it as free. Something
+is already listening on `127.0.0.1:3300` through a docker-proxy, so the registry
+and the socket table disagree. `first-deploy.sh` checks the socket table and
+refuses to start on an occupied port.
+
+No certificate work is needed. The `orbyatravel.com` certificate is a wildcard,
+so a new subdomain needs an nginx block and a DNS record and nothing else.
+
+### 1. First bring-up, run by the operator
 
 ```sh
-dig +short cueline.yourdomain.com
+scp deploy/first-deploy.sh root@200.234.32.95:/root/
+ssh root@200.234.32.95 'bash /root/first-deploy.sh'
 ```
 
-### 2. Clone the repo onto the server
+The script checks the port, creates `/opt/cueline`, writes `.env.prod` at mode
+600, pulls the image, and starts the container. It asks you to place the compose
+file by hand, because that file is host-owned:
 
 ```sh
-ssh root@your-box
-apt-get update && apt-get install -y git rsync
-git clone git@github.com:whynotramaa/kei.git /opt/cueline
+mkdir -p /opt/cueline/docker
+# paste deploy/docker-compose.prod.yml to:
+#   /opt/cueline/docker/docker-compose.prod.yml
 ```
 
-Clone to `/opt/cueline` exactly. The deploy script and the CI workflow both
-expect that path.
+It touches no server config. It prints the remaining manual steps at the end.
 
-### 3. Run the first deployment
+### 2. Install the nginx block, by hand
+
+This is the step most likely to go wrong, so read the file before you copy it.
 
 ```sh
-cd /opt/cueline
-./deploy/deploy.sh cueline.yourdomain.com --certbot
+mkdir -p /opt/cueline/docker/nginx
+# paste deploy/cueline.nginx.conf to:
+#   /opt/cueline/docker/nginx/cueline.conf
+ln -sf /opt/cueline/docker/nginx/cueline.conf /etc/nginx/sites-enabled/cueline.conf
+nginx -t && nginx -s reload
 ```
 
-The script installs Node 22 if the box does not have it, creates the `cueline`
-system user, installs dependencies, writes `/etc/cueline.env`, installs and
-starts the systemd unit, adds the nginx site, and requests a certificate.
+**Do not copy the standard Orbya proxy block for this site.** CueLine signals
+over a websocket, and that block has no `Upgrade` headers. Without them nginx
+answers the upgrade handshake with a plain 200, no room ever pairs, and the host
+page sits on "agent offline" with nothing in the logs to explain it. The three
+lines that matter:
 
-It refuses to run if port 8080 is already taken, and it keeps an existing
-`/etc/cueline.env` so a second run does not wipe your TURN credentials.
+```nginx
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";
+```
 
-Drop `--certbot` if you would rather let Cloudflare terminate TLS with SSL mode
-set to Flexible. The host page only needs HTTPS in the browser, so either works.
+The block also raises `proxy_read_timeout` to an hour. A paired room holds its
+socket open between cues, and the 60 second default would drop it every minute.
 
-### 4. Turn the Cloudflare proxy back on
+### 3. Add the DNS record, proxied
 
-Switch the record to proxied, the orange cloud, and set SSL mode to **Full
-(strict)** if you used `--certbot`, or **Flexible** if you did not.
+Add `cueline.orbyatravel.com` in Cloudflare pointing at `200.234.32.95`, set to
+**Proxied**, the orange cloud.
 
-Cloudflare proxies WebSockets, so signalling passes through unchanged. The audio
-never touches Cloudflare. It goes peer to peer, or through TURN if you add it.
+It must be proxied. UFW on this box allows ports 80 and 443 only from Cloudflare
+ranges, so a grey-cloud record is blackholed and the site is simply unreachable.
+SSL mode stays Full (strict), which the wildcard origin certificate satisfies.
 
-### 5. Verify
+Cloudflare proxies websockets on all plans, so signalling passes through
+unchanged. Audio never touches Cloudflare. It goes peer to peer, or through TURN
+if you add it.
+
+### 4. Verify
 
 ```sh
-systemctl status cueline
-journalctl -u cueline -f
-curl -s http://127.0.0.1:8080/config.json          # on the box
-curl -s https://cueline.yourdomain.com/config.json # from anywhere
+docker compose -p cueline -f /opt/cueline/docker/docker-compose.prod.yml \
+  --env-file /opt/cueline/.env.prod ps
+curl -s http://127.0.0.1:3400/config.json          # on the box
+curl -s https://cueline.orbyatravel.com/config.json # from anywhere
 ```
 
-A JSON body with an `iceServers` array means the service, nginx, and TLS all
-work.
+A JSON body with an `iceServers` array means the container, nginx, Cloudflare,
+and TLS all work.
 
-### 6. Run the agent on Windows
+### 5. Add TURN when a call fails to connect
 
-Download the installer from the repo's Releases page, or copy the `client`
-folder to device A and run it from source:
-
-```powershell
-cd client
-npm install
-npm start
-```
-
-Enter `https://cueline.yourdomain.com` and the room code from the host page.
-
-### 7. Add TURN when a call fails to connect
-
-Skip this until you see a call stall in connection state `failed`. Home and cafe
+Skip this until a call stalls in connection state `failed`. Home and cafe
 networks connect over STUN alone. Corporate networks usually do not.
 
 ```sh
-nano /etc/cueline.env      # fill in TURN_URLS, TURN_USERNAME, TURN_CREDENTIAL
-systemctl restart cueline
+nano /opt/cueline/.env.prod    # TURN_URLS, TURN_USERNAME, TURN_CREDENTIAL
+cd /opt/cueline && docker compose -p cueline \
+  -f docker/docker-compose.prod.yml --env-file .env.prod up -d
 ```
 
 Prefer a provider that offers `turns:` on port 443. A network that blocks
 everything else usually leaves 443 open, and that is the case TURN exists for.
 
-## Continuous deployment
+## Add the CI deploy key
 
-After the first deployment, pushes to `main` deploy themselves.
+CueLine gets its own key. The runbook is explicit that CI keys are per project
+and carry the `restrict` prefix, so they cannot open port-forwarding tunnels to
+anyone else's database.
 
-### Create a deploy key
+### 1. Generate the key pair
 
-On the server:
+Generate it on your laptop, not on the server, so the private half never sits on
+the box it unlocks.
 
 ```sh
-ssh-keygen -t ed25519 -f ~/.ssh/cueline_deploy -N "" -C "github-actions"
-cat ~/.ssh/cueline_deploy.pub >> ~/.ssh/authorized_keys
-cat ~/.ssh/cueline_deploy          # copy this private key
+ssh-keygen -t ed25519 -f ~/.ssh/cueline_deploy -N "" -C "cueline-github-actions"
 ```
 
-### Add the repository secrets
+`-N ""` gives it no passphrase. A CI key cannot type one.
 
-Go to **Settings, Secrets and variables, Actions** in the GitHub repo and add
-three secrets.
+### 2. Authorise the public half on the server
+
+```sh
+ssh root@200.234.32.95
+printf 'restrict %s\n' "$(cat)" >> /root/.ssh/authorized_keys
+# paste the contents of ~/.ssh/cueline_deploy.pub, then press Ctrl-D
+```
+
+The `restrict` prefix is required. It removes pty allocation, agent forwarding,
+port forwarding, and X11. The deploy runs `bash -s` over stdin, which needs none
+of those.
+
+Confirm the file now holds four keys, the three already documented plus this one:
+
+```sh
+ssh-keygen -lf /root/.ssh/authorized_keys
+```
+
+Editing `authorized_keys` needs no `systemctl reload ssh`. That is only for
+changes under `/etc/ssh/sshd_config.d/`.
+
+### 3. Test it before you trust it
+
+From a second terminal, while your current session stays open:
+
+```sh
+ssh -i ~/.ssh/cueline_deploy root@200.234.32.95 'docker ps --format "{{.Names}}"'
+```
+
+Run a command rather than logging in interactively. `restrict` blocks the pty,
+so a bare `ssh` will look like it failed when the key is in fact fine.
+
+### 4. Add the GitHub secrets
+
+In the repo, go to **Settings, Secrets and variables, Actions**, then add three
+repository secrets.
 
 | Secret | Value |
 | --- | --- |
-| `SSH_HOST` | The VPS IP address |
-| `SSH_USER` | `root` |
-| `SSH_KEY` | The private key printed above, including both header lines |
+| `VPS_HOST` | `200.234.32.95` |
+| `VPS_USER` | `root` |
+| `VPS_SSH_KEY` | The full contents of `~/.ssh/cueline_deploy`, including the `BEGIN` and `END` lines |
 
-### What the workflows do
+```sh
+# copies the private key, headers included
+cat ~/.ssh/cueline_deploy
+```
 
-`.github/workflows/deploy-server.yml` runs on any push to `main` that touches
-`server/` or `deploy/`. It checks that the files parse, connects over SSH, resets
-`/opt/cueline` to `origin/main`, installs dependencies, restarts the service, and
-fails the build if the service does not answer afterwards.
+### 5. Gate the deploy behind a reviewer
 
-`.github/workflows/build-agent.yml` runs on a tag that starts with `v`, or from
-the **Run workflow** button. It builds the Windows installer on a Windows runner,
-uploads it as an artifact, and attaches it to a release on a tag. It does not run
-on every push, because you want an installer when you decide to cut one, not on
-every tweak.
+Go to **Settings, Environments**, create one named `production`, and add
+yourself under **Required reviewers**.
+
+A push to `main` runs as root on a shared VPS. The reviewer gate means a stolen
+push still needs a human click before it reaches the box. The workflow already
+declares `environment: production`, so the gate applies the moment you create it.
+
+Turn on 2FA for the GitHub account if it is not on already. It is now the
+shortest path to the server.
+
+## What the workflows do
+
+`.github/workflows/deploy.yml` runs on pushes to `main` that touch `server/` or
+`Dockerfile`. It checks the files parse, builds the image on a GitHub runner,
+pushes it to GHCR tagged with the commit SHA, then connects over SSH to pull and
+restart. It fails the build if the container does not answer afterwards, and it
+prunes dangling images only, never `-a`, because the host is shared.
+
+`.github/workflows/build-agent.yml` runs on a tag starting with `v`, or from the
+**Run workflow** button. It builds the Windows installer on a Windows runner and
+attaches it to a release on a tag.
 
 ```sh
 git tag v1.0.0 && git push --tags
 ```
 
-The build is unsigned, so SmartScreen warns on first run. Code signing needs a
-purchased OV or EV certificate.
+## Roll back a bad deploy
+
+Images are tagged by commit SHA.
+
+```sh
+cd /opt/cueline
+export IMAGE_TAG=<previous-good-sha>
+docker compose -p cueline -f docker/docker-compose.prod.yml --env-file .env.prod up -d
+```
 
 ## Verify it end to end
 
 Work down this list. Each line proves the one above it was fine.
 
-1. `curl -s https://yourdomain/config.json` returns an `iceServers` array.
-2. The host page shows a six character room code.
+1. `curl -s https://cueline.orbyatravel.com/config.json` returns an `iceServers`
+   array.
+2. The host page shows a six character room code. If the code stays `------` the
+   websocket never upgraded, which points at the nginx block from step 2.
 3. The agent connects and the presence dot on the host turns green.
 4. The tray icon on device A changes from grey to green.
 5. A cue typed on device B appears on the agent's overlay within a blink.
 6. Both meters move independently when you talk and when you play music.
 7. `chrome://webrtc-internals` on device B shows `currentRoundTripTime` and
-   `jitterBufferDelay`. Trust these numbers over any estimate in the README.
-8. Turn off Wi-Fi on device A for ten seconds. Audio should resume without a new
-   room code.
-
-## Update a running deployment
-
-Push to `main`. The workflow does the rest.
-
-The workflow runs `deploy/update.sh` on the server. To do the same by hand:
-
-```sh
-ssh root@your-box 'bash -s' < deploy/update.sh
-```
+   `jitterBufferDelay`. Trust these over any estimate in the README.
+8. Turn off Wi-Fi on device A for ten seconds. Audio resumes without a new code.
