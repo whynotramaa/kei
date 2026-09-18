@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .env
+
+# stray artifact if a workflow SSH line is ever pasted into a local shell
+key

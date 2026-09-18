@@ -49,32 +49,31 @@ else
     echo "kept the existing one."
 fi
 
-say "Installing the compose file"
-if [ -f "$APP_DIR/docker/docker-compose.prod.yml" ]; then
-    echo "already present, leaving it alone. It is host-owned."
-else
-    echo "Paste deploy/docker-compose.prod.yml from the repo to:"
-    echo "  $APP_DIR/docker/docker-compose.prod.yml"
-    echo "then run this script again."
+say "Checking the compose file is in place"
+if [ ! -f "$APP_DIR/docker/docker-compose.prod.yml" ]; then
+    echo "Missing $APP_DIR/docker/docker-compose.prod.yml" >&2
+    echo "Paste deploy/docker-compose.prod.yml from the repo to that path, then" >&2
+    echo "run this script again. That file is host-owned on purpose." >&2
     exit 1
 fi
+echo "present."
 
-say "Pulling and starting"
-cd "$APP_DIR"
-DC="docker compose -p $PROJECT -f docker/docker-compose.prod.yml --env-file .env.prod"
-export IMAGE_TAG="${IMAGE_TAG:-latest}"
-$DC pull
-$DC up -d --remove-orphans
-sleep 3
-$DC ps
-
-say "Checking the service answers on loopback"
-curl -fsS "http://127.0.0.1:$HOST_PORT/config.json" && echo
+# No docker login or pull here. The deploy workflow already authenticates to
+# GHCR with its own token, so the first start comes from CI. Pulling by hand
+# would need a personal access token nobody should have to create.
 
 say "Remaining steps, by hand"
 cat <<NEXT
 
-1. Install the nginx block. Copy deploy/cueline.nginx.conf from the repo to
+1. Start it from CI. On your laptop:
+
+     gh workflow run Deploy
+
+   CI logs in to GHCR, pulls the image, and starts the container. Then check:
+
+     curl -fsS http://127.0.0.1:$HOST_PORT/config.json
+
+2. Install the nginx block. Copy deploy/cueline.nginx.conf from the repo to
    /opt/cueline/docker/nginx/cueline.conf, then:
 
      mkdir -p /opt/cueline/docker/nginx
@@ -84,14 +83,14 @@ cat <<NEXT
    That block carries three Upgrade headers the Orbya block does not have.
    Without them the websocket never establishes and no room ever pairs.
 
-2. Add the Cloudflare DNS record for cueline.orbyatravel.com, PROXIED, orange
+3. Add the Cloudflare DNS record for cueline.orbyatravel.com, PROXIED, orange
    cloud. A grey-cloud record is blackholed by UFW on this box.
 
-3. No certificate work. The orbyatravel.com certificate is a wildcard.
+4. No certificate work. The orbyatravel.com certificate is a wildcard.
 
-4. Record the allocation in SERVER-SETUP.txt section 7:
+5. Record the allocation in SERVER-SETUP.txt section 7:
      $HOST_PORT  cueline  signalling (Docker)
 
-5. Add the CI deploy key to /root/.ssh/authorized_keys with the restrict prefix.
+6. Add the CI deploy key to /root/.ssh/authorized_keys with the restrict prefix.
 
 NEXT
