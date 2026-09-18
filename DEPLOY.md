@@ -200,11 +200,17 @@ ssh-keygen -t ed25519 -f ~/.ssh/cueline_deploy -N "" -C "cueline-github-actions"
 
 ### 2. Authorise the public half on the server
 
+Run this as ONE command. It expands the public key on your laptop and sends the
+whole thing as a single remote command, so there is no second line to run by
+accident if the connection fails.
+
 ```sh
-ssh root@200.234.32.95
-printf 'restrict %s\n' "$(cat)" >> /root/.ssh/authorized_keys
-# paste the contents of ~/.ssh/cueline_deploy.pub, then press Ctrl-D
+ssh root@200.234.32.95 "printf 'restrict %s\n' '$(cat ~/.ssh/cueline_deploy.pub)' >> /root/.ssh/authorized_keys"
 ```
+
+Never split this into an `ssh` line followed by a `printf` line. If the `ssh`
+fails, the `printf` runs on your own machine against your own
+`/root/.ssh/authorized_keys`.
 
 The `restrict` prefix is required. It removes pty allocation, agent forwarding,
 port forwarding, and X11. The deploy runs `bash -s` over stdin, which needs none
